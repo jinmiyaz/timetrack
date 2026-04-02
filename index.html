@@ -1,0 +1,1578 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TimeTrack</title>
+<style>
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-tertiary: #0f3460;
+  --bg-card: #1e2a4a;
+  --bg-input: #253559;
+  --text-primary: #e8e8e8;
+  --text-secondary: #a0a8c0;
+  --text-muted: #6b7394;
+  --accent: #e94560;
+  --accent-hover: #ff6b81;
+  --green: #4ecca3;
+  --green-hover: #6be4bc;
+  --border: #2a3a5c;
+  --shadow: rgba(0,0,0,0.3);
+  --radius: 8px;
+  --transition: 0.2s ease;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+/* Header */
+.header {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.header-actions .status {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: 8px;
+}
+
+/* Buttons */
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background var(--transition), transform var(--transition);
+  color: var(--text-primary);
+}
+
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+
+.btn-primary { background: var(--accent); }
+.btn-primary:hover { background: var(--accent-hover); }
+
+.btn-secondary { background: var(--bg-tertiary); }
+.btn-secondary:hover { background: #1a4a80; }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 6px 10px;
+}
+.btn-ghost:hover { color: var(--text-primary); background: var(--bg-input); }
+
+.btn-danger { background: #c0392b; }
+.btn-danger:hover { background: #e74c3c; }
+
+.btn-icon {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 18px;
+}
+
+/* Timer Bar */
+.timer-bar {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 8px var(--shadow);
+}
+
+.timer-bar input[type="text"] {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-size: 15px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.timer-bar input[type="text"]:focus {
+  border-color: var(--accent);
+}
+
+.timer-bar input[type="text"]::placeholder {
+  color: var(--text-muted);
+}
+
+.project-select {
+  position: relative;
+}
+
+.project-select-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 14px;
+  min-width: 160px;
+  transition: border-color var(--transition);
+}
+
+.project-select-btn:hover { border-color: var(--accent); }
+
+.project-color-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.project-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 220px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px var(--shadow);
+  z-index: 200;
+  display: none;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.project-dropdown.open { display: block; }
+
+.project-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background var(--transition);
+}
+
+.project-dropdown-item:hover { background: var(--bg-input); }
+
+.project-dropdown-item.add-new {
+  border-top: 1px solid var(--border);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.timer-display {
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 110px;
+  text-align: center;
+  color: var(--text-primary);
+}
+
+.timer-display.running { color: var(--green); }
+
+.btn-start {
+  background: var(--green);
+  width: 48px;
+  height: 48px;
+}
+.btn-start:hover { background: var(--green-hover); }
+
+.btn-stop {
+  background: var(--accent);
+  width: 48px;
+  height: 48px;
+}
+.btn-stop:hover { background: var(--accent-hover); }
+
+/* Main Content */
+.main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.tab:hover { color: var(--text-primary); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* Timeline View */
+.day-group { margin-bottom: 24px; }
+
+.day-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.day-header-date {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.day-header-total {
+  font-size: 14px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  margin-bottom: 4px;
+  transition: background var(--transition);
+}
+
+.entry-card:hover { background: var(--bg-input); }
+
+.entry-color {
+  width: 4px;
+  height: 36px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.entry-info { flex: 1; min-width: 0; }
+
+.entry-task {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.entry-project {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.entry-time {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.entry-range {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-duration {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 70px;
+  text-align: right;
+}
+
+.entry-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.entry-card:hover .entry-actions { opacity: 1; }
+
+.entry-actions button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: color var(--transition), background var(--transition);
+}
+
+.entry-actions button:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.entry-actions button.delete:hover { color: #e74c3c; }
+
+/* Summary View */
+.summary-section { margin-bottom: 32px; }
+
+.summary-section h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+}
+
+.summary-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.summary-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.summary-label span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.summary-bar-wrap {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-input);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.summary-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.summary-duration {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 80px;
+  text-align: right;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.modal-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 400px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 16px 48px var(--shadow);
+  transform: translateY(10px);
+  transition: transform 0.2s ease;
+}
+
+.modal-overlay.open .modal { transform: translateY(0); }
+
+.modal h2 {
+  font-size: 18px;
+  margin-bottom: 20px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  border-color: var(--accent);
+}
+
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.form-row .form-group { flex: 1; }
+
+.color-picker {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.color-option {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color var(--transition), transform var(--transition);
+}
+
+.color-option:hover { transform: scale(1.15); }
+.color-option.selected { border-color: var(--text-primary); }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+
+.empty-state p {
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+
+.empty-state .hint {
+  font-size: 13px;
+}
+
+/* Welcome screen */
+.welcome {
+  text-align: center;
+  padding: 80px 20px;
+}
+
+.welcome h2 {
+  font-size: 24px;
+  margin-bottom: 12px;
+}
+
+.welcome p {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  font-size: 15px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Add entry button */
+.add-entry-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+/* Date Filter */
+.date-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.date-filter-presets {
+  display: flex;
+  gap: 4px;
+}
+
+.date-filter-presets button {
+  padding: 6px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.date-filter-presets button:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.date-filter-presets button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.date-filter-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.date-filter-range input[type="date"] {
+  padding: 6px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  font-family: inherit;
+}
+
+.date-filter-range input[type="date"]:focus {
+  border-color: var(--accent);
+}
+
+.date-filter-range span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.date-filter-clear {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  transition: color var(--transition);
+}
+
+.date-filter-clear:hover { color: var(--text-primary); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>TimeTrack</h1>
+  <div class="header-actions">
+    <span class="status" id="storageStatus"></span>
+    <button class="btn btn-secondary" id="btnFolder" title="保存先フォルダを選択">&#128193; フォルダ選択</button>
+    <button class="btn btn-secondary" id="btnManageProjects">&#9881; プロジェクト管理</button>
+  </div>
+</div>
+
+<div class="timer-bar">
+  <input type="text" id="timerTask" placeholder="タスク名を入力...">
+  <div class="project-select">
+    <button class="project-select-btn" id="projectSelectBtn">
+      <span class="project-color-dot" id="selectedProjectDot" style="background:#888"></span>
+      <span id="selectedProjectName">プロジェクト未選択</span>
+      <span style="margin-left:auto;font-size:10px">&#9660;</span>
+    </button>
+    <div class="project-dropdown" id="projectDropdown"></div>
+  </div>
+  <div class="timer-display" id="timerDisplay">0:00:00</div>
+  <button class="btn btn-icon btn-start" id="btnTimer" title="スタート">&#9654;</button>
+</div>
+
+<div class="main">
+  <div class="tabs">
+    <button class="tab active" data-tab="timeline">タイムライン</button>
+    <button class="tab" data-tab="summary">集計</button>
+  </div>
+
+  <div id="tabTimeline">
+    <div class="add-entry-bar">
+      <button class="btn btn-secondary" id="btnAddEntry">+ 手動追加</button>
+    </div>
+    <div id="timelineContent"></div>
+  </div>
+
+  <div id="tabSummary" style="display:none">
+    <div class="date-filter">
+      <div class="date-filter-presets">
+        <button data-preset="today">今日</button>
+        <button data-preset="yesterday">昨日</button>
+        <button data-preset="week">今週</button>
+        <button data-preset="all" class="active">全期間</button>
+      </div>
+      <div class="date-filter-range">
+        <input type="date" id="filterFrom" title="開始日">
+        <span>〜</span>
+        <input type="date" id="filterTo" title="終了日">
+      </div>
+      <button class="date-filter-clear" id="filterClear">クリア</button>
+    </div>
+    <div id="summaryContent"></div>
+  </div>
+</div>
+
+<!-- Entry Edit Modal -->
+<div class="modal-overlay" id="entryModal">
+  <div class="modal">
+    <h2 id="entryModalTitle">エントリ編集</h2>
+    <div class="form-group">
+      <label>タスク名</label>
+      <input type="text" id="entryEditTask">
+    </div>
+    <div class="form-group">
+      <label>プロジェクト</label>
+      <select id="entryEditProject"></select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>開始日時</label>
+        <input type="datetime-local" id="entryEditStart">
+      </div>
+      <div class="form-group">
+        <label>終了日時</label>
+        <input type="datetime-local" id="entryEditEnd">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="entryModalCancel">キャンセル</button>
+      <button class="btn btn-primary" id="entryModalSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Project Management Modal -->
+<div class="modal-overlay" id="projectModal">
+  <div class="modal">
+    <h2>プロジェクト管理</h2>
+    <div id="projectList" style="margin-bottom:20px"></div>
+    <h3 style="font-size:15px;margin-bottom:12px" id="projectFormTitle">新規プロジェクト</h3>
+    <div class="form-group">
+      <label>プロジェクト名</label>
+      <input type="text" id="projectName" placeholder="プロジェクト名">
+    </div>
+    <div class="form-group">
+      <label>カラー</label>
+      <div class="color-picker" id="colorPicker"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="projectModalCancel">閉じる</button>
+      <button class="btn btn-primary" id="projectModalSave">追加</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Color Presets
+// ============================================================
+const COLORS = ['#e94560','#4ecca3','#3498db','#f39c12','#9b59b6','#1abc9c','#e67e22','#2ecc71'];
+
+// ============================================================
+// StorageAdapter
+// ============================================================
+class StorageAdapter {
+  constructor() {
+    this.dirHandle = null;
+    this.fileHandle = null;
+    this.supportsFS = typeof window.showDirectoryPicker === 'function';
+  }
+
+  get mode() {
+    return this.dirHandle ? 'file' : (this.supportsFS ? 'none' : 'local');
+  }
+
+  async pickDirectory() {
+    if (!this.supportsFS) return false;
+    try {
+      this.dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      this.fileHandle = await this.dirHandle.getFileHandle('data.json', { create: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async save(data) {
+    const json = JSON.stringify(data, null, 2);
+    if (this.fileHandle) {
+      try {
+        const writable = await this.fileHandle.createWritable();
+        await writable.write(json);
+        await writable.close();
+        return 'file';
+      } catch {
+        // fall through to localStorage
+      }
+    }
+    localStorage.setItem('timetrack_data', json);
+    return 'local';
+  }
+
+  async load() {
+    if (this.fileHandle) {
+      try {
+        const file = await this.fileHandle.getFile();
+        const text = await file.text();
+        if (text.trim()) return JSON.parse(text);
+      } catch { /* fall through */ }
+    }
+    const raw = localStorage.getItem('timetrack_data');
+    return raw ? JSON.parse(raw) : null;
+  }
+
+  exportJSON(data) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'timetrack-data.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  importJSON() {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.onchange = async () => {
+        if (!input.files[0]) return resolve(null);
+        const text = await input.files[0].text();
+        try { resolve(JSON.parse(text)); } catch { resolve(null); }
+      };
+      input.click();
+    });
+  }
+}
+
+// ============================================================
+// AppState
+// ============================================================
+class AppState {
+  constructor(storage) {
+    this.storage = storage;
+    this.data = { version: 1, projects: [], entries: [], activeTimer: null };
+    this.listeners = [];
+    this._saveTimeout = null;
+  }
+
+  async init() {
+    const saved = await this.storage.load();
+    if (saved && saved.version) {
+      this.data = saved;
+    }
+    this.notify();
+  }
+
+  onChange(fn) { this.listeners.push(fn); }
+
+  notify() { this.listeners.forEach(fn => fn(this.data)); }
+
+  _scheduleSave() {
+    clearTimeout(this._saveTimeout);
+    this._saveTimeout = setTimeout(async () => {
+      const mode = await this.storage.save(this.data);
+      updateStorageStatus(mode);
+    }, 500);
+  }
+
+  commit() {
+    this.notify();
+    this._scheduleSave();
+  }
+
+  // Projects
+  addProject(name, color) {
+    const proj = { id: 'proj_' + crypto.randomUUID().slice(0,8), name, color, createdAt: new Date().toISOString() };
+    this.data.projects.push(proj);
+    this.commit();
+    return proj;
+  }
+
+  updateProject(id, name, color) {
+    const p = this.data.projects.find(p => p.id === id);
+    if (p) { p.name = name; p.color = color; this.commit(); }
+  }
+
+  deleteProject(id) {
+    this.data.projects = this.data.projects.filter(p => p.id !== id);
+    this.data.entries.forEach(e => { if (e.projectId === id) e.projectId = null; });
+    if (this.data.activeTimer?.projectId === id) this.data.activeTimer.projectId = null;
+    this.commit();
+  }
+
+  getProject(id) { return this.data.projects.find(p => p.id === id) || null; }
+
+  // Timer
+  startTimer(task, projectId) {
+    this.data.activeTimer = { task: task || '', projectId: projectId || null, startTime: new Date().toISOString() };
+    this.commit();
+  }
+
+  stopTimer() {
+    const t = this.data.activeTimer;
+    if (!t) return null;
+    const end = new Date();
+    const start = new Date(t.startTime);
+    const duration = Math.round((end - start) / 1000);
+    const entry = {
+      id: 'entry_' + crypto.randomUUID().slice(0,8),
+      projectId: t.projectId,
+      task: t.task || '(名称なし)',
+      startTime: t.startTime,
+      endTime: end.toISOString(),
+      duration
+    };
+    this.data.entries.push(entry);
+    this.data.activeTimer = null;
+    this.commit();
+    return entry;
+  }
+
+  // Entries
+  addEntry(task, projectId, startTime, endTime) {
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const duration = Math.round((end - start) / 1000);
+    if (duration <= 0) return null;
+    const entry = {
+      id: 'entry_' + crypto.randomUUID().slice(0,8),
+      projectId: projectId || null,
+      task: task || '(名称なし)',
+      startTime: start.toISOString(),
+      endTime: end.toISOString(),
+      duration
+    };
+    this.data.entries.push(entry);
+    this.commit();
+    return entry;
+  }
+
+  updateEntry(id, task, projectId, startTime, endTime) {
+    const e = this.data.entries.find(e => e.id === id);
+    if (!e) return;
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    e.task = task || '(名称なし)';
+    e.projectId = projectId || null;
+    e.startTime = start.toISOString();
+    e.endTime = end.toISOString();
+    e.duration = Math.round((end - start) / 1000);
+    this.commit();
+  }
+
+  deleteEntry(id) {
+    this.data.entries = this.data.entries.filter(e => e.id !== id);
+    this.commit();
+  }
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+function formatDuration(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function formatTime(iso) {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+function formatDateGroup(iso) {
+  const d = new Date(iso);
+  const days = ['日','月','火','水','木','金','土'];
+  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${days[d.getDay()]}）`;
+}
+
+function dateKey(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function toLocalDatetime(iso) {
+  const d = new Date(iso);
+  const off = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - off * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ============================================================
+// App
+// ============================================================
+const storage = new StorageAdapter();
+const state = new AppState(storage);
+let timerInterval = null;
+let selectedProjectId = null;
+let editingEntryId = null;
+let editingProjectId = null;
+
+// DOM refs
+const $ = id => document.getElementById(id);
+const timerTask = $('timerTask');
+const timerDisplay = $('timerDisplay');
+const btnTimer = $('btnTimer');
+const projectSelectBtn = $('projectSelectBtn');
+const projectDropdown = $('projectDropdown');
+const selectedProjectDot = $('selectedProjectDot');
+const selectedProjectName = $('selectedProjectName');
+const timelineContent = $('timelineContent');
+const summaryContent = $('summaryContent');
+
+// ============================================================
+// Storage Status
+// ============================================================
+function updateStorageStatus(mode) {
+  const el = $('storageStatus');
+  if (mode === 'file') el.textContent = '&#10003; フォルダ保存';
+  else if (mode === 'local') el.textContent = 'localStorage保存';
+  else el.textContent = '';
+  el.innerHTML = el.textContent;
+}
+
+// ============================================================
+// Folder Selection
+// ============================================================
+$('btnFolder').onclick = async () => {
+  if (storage.supportsFS) {
+    const ok = await storage.pickDirectory();
+    if (ok) {
+      const saved = await storage.load();
+      if (saved && saved.version && saved.entries?.length > 0) {
+        state.data = saved;
+        state.commit();
+      } else {
+        await storage.save(state.data);
+      }
+      updateStorageStatus('file');
+    }
+  } else {
+    const action = confirm('このブラウザはフォルダ保存非対応です。\nOK: データをエクスポート\nキャンセル: データをインポート');
+    if (action) {
+      storage.exportJSON(state.data);
+    } else {
+      const imported = await storage.importJSON();
+      if (imported && imported.version) {
+        state.data = imported;
+        state.commit();
+      }
+    }
+  }
+};
+
+// ============================================================
+// Timer
+// ============================================================
+function updateTimerDisplay() {
+  const at = state.data.activeTimer;
+  if (!at) {
+    timerDisplay.textContent = '0:00:00';
+    timerDisplay.classList.remove('running');
+    btnTimer.innerHTML = '&#9654;';
+    btnTimer.className = 'btn btn-icon btn-start';
+    btnTimer.title = 'スタート';
+    return;
+  }
+  const elapsed = Math.max(0, Math.round((Date.now() - new Date(at.startTime).getTime()) / 1000));
+  timerDisplay.textContent = formatDuration(elapsed);
+  timerDisplay.classList.add('running');
+  btnTimer.innerHTML = '&#9632;';
+  btnTimer.className = 'btn btn-icon btn-stop';
+  btnTimer.title = 'ストップ';
+}
+
+function startTimerTick() {
+  stopTimerTick();
+  updateTimerDisplay();
+  timerInterval = setInterval(updateTimerDisplay, 1000);
+}
+
+function stopTimerTick() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+}
+
+btnTimer.onclick = () => {
+  if (state.data.activeTimer) {
+    state.stopTimer();
+    stopTimerTick();
+    updateTimerDisplay();
+  } else {
+    state.startTimer(timerTask.value.trim(), selectedProjectId);
+    timerTask.value = '';
+    startTimerTick();
+  }
+};
+
+timerTask.addEventListener('keydown', e => {
+  if (e.key === 'Enter') btnTimer.click();
+});
+
+// ============================================================
+// Project Select Dropdown
+// ============================================================
+projectSelectBtn.onclick = (e) => {
+  e.stopPropagation();
+  renderProjectDropdown();
+  projectDropdown.classList.toggle('open');
+};
+
+document.addEventListener('click', () => {
+  projectDropdown.classList.remove('open');
+});
+
+function renderProjectDropdown() {
+  const projects = state.data.projects;
+  let html = `<div class="project-dropdown-item" data-id="">
+    <span class="project-color-dot" style="background:#888"></span>
+    <span>プロジェクトなし</span>
+  </div>`;
+  projects.forEach(p => {
+    html += `<div class="project-dropdown-item" data-id="${p.id}">
+      <span class="project-color-dot" style="background:${p.color}"></span>
+      <span>${escapeHtml(p.name)}</span>
+    </div>`;
+  });
+  html += `<div class="project-dropdown-item add-new" data-id="__new__">+ 新規プロジェクト</div>`;
+  projectDropdown.innerHTML = html;
+
+  projectDropdown.querySelectorAll('.project-dropdown-item').forEach(el => {
+    el.onclick = (e) => {
+      e.stopPropagation();
+      const id = el.dataset.id;
+      if (id === '__new__') {
+        projectDropdown.classList.remove('open');
+        openProjectModal();
+        return;
+      }
+      selectedProjectId = id || null;
+      updateSelectedProject();
+      projectDropdown.classList.remove('open');
+    };
+  });
+}
+
+function updateSelectedProject() {
+  const p = selectedProjectId ? state.getProject(selectedProjectId) : null;
+  selectedProjectDot.style.background = p ? p.color : '#888';
+  selectedProjectName.textContent = p ? p.name : 'プロジェクト未選択';
+}
+
+// ============================================================
+// Timeline View
+// ============================================================
+function renderTimeline(data) {
+  const entries = [...data.entries].sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+  if (entries.length === 0) {
+    timelineContent.innerHTML = `<div class="empty-state">
+      <p>まだ記録がありません</p>
+      <p class="hint">上のタイマーで計測を開始するか、「+ 手動追加」で記録を追加してください</p>
+    </div>`;
+    return;
+  }
+
+  const groups = {};
+  entries.forEach(e => {
+    const dk = dateKey(e.startTime);
+    if (!groups[dk]) groups[dk] = { date: e.startTime, entries: [], total: 0 };
+    groups[dk].entries.push(e);
+    groups[dk].total += e.duration;
+  });
+
+  let html = '';
+  Object.keys(groups).sort().reverse().forEach(dk => {
+    const g = groups[dk];
+    html += `<div class="day-group">
+      <div class="day-header">
+        <span class="day-header-date">${formatDateGroup(g.date)}</span>
+        <span class="day-header-total">合計 ${formatDuration(g.total)}</span>
+      </div>`;
+    g.entries.forEach(e => {
+      const proj = data.projects.find(p => p.id === e.projectId);
+      const color = proj ? proj.color : '#555';
+      const projName = proj ? escapeHtml(proj.name) : 'プロジェクトなし';
+      html += `<div class="entry-card" data-id="${e.id}">
+        <div class="entry-color" style="background:${color}"></div>
+        <div class="entry-info">
+          <div class="entry-task">${escapeHtml(e.task)}</div>
+          <div class="entry-project">${projName}</div>
+        </div>
+        <div class="entry-time">
+          <span class="entry-range">${formatTime(e.startTime)} - ${formatTime(e.endTime)}</span>
+          <span class="entry-duration">${formatDuration(e.duration)}</span>
+        </div>
+        <div class="entry-actions">
+          <button class="edit" title="編集" data-id="${e.id}">&#9998;</button>
+          <button class="delete" title="削除" data-id="${e.id}">&times;</button>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  });
+  timelineContent.innerHTML = html;
+
+  timelineContent.querySelectorAll('.entry-actions .edit').forEach(btn => {
+    btn.onclick = () => openEntryModal(btn.dataset.id);
+  });
+  timelineContent.querySelectorAll('.entry-actions .delete').forEach(btn => {
+    btn.onclick = () => {
+      if (confirm('このエントリを削除しますか？')) state.deleteEntry(btn.dataset.id);
+    };
+  });
+}
+
+// ============================================================
+// Summary View
+// ============================================================
+// ============================================================
+// Date Filter
+// ============================================================
+let summaryFilterFrom = null;
+let summaryFilterTo = null;
+
+function todayRange() {
+  const d = new Date();
+  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const end = new Date(start.getTime() + 86400000);
+  return [start, end];
+}
+
+function yesterdayRange() {
+  const d = new Date();
+  const end = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const start = new Date(end.getTime() - 86400000);
+  return [start, end];
+}
+
+function thisWeekRange() {
+  const d = new Date();
+  const day = d.getDay(); // 0=Sun
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((day + 6) % 7));
+  const end = new Date(monday.getTime() + 7 * 86400000);
+  return [monday, end];
+}
+
+function toDateString(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function setFilterPreset(preset) {
+  const filterFrom = $('filterFrom');
+  const filterTo = $('filterTo');
+
+  document.querySelectorAll('.date-filter-presets button').forEach(b => b.classList.remove('active'));
+  document.querySelector(`.date-filter-presets button[data-preset="${preset}"]`)?.classList.add('active');
+
+  if (preset === 'all') {
+    summaryFilterFrom = null;
+    summaryFilterTo = null;
+    filterFrom.value = '';
+    filterTo.value = '';
+  } else {
+    let range;
+    if (preset === 'today') range = todayRange();
+    else if (preset === 'yesterday') range = yesterdayRange();
+    else if (preset === 'week') range = thisWeekRange();
+    summaryFilterFrom = range[0];
+    summaryFilterTo = range[1];
+    filterFrom.value = toDateString(range[0]);
+    filterTo.value = toDateString(new Date(range[1].getTime() - 86400000));
+  }
+  renderSummary(state.data);
+}
+
+function filterEntries(entries) {
+  if (!summaryFilterFrom && !summaryFilterTo) return entries;
+  return entries.filter(e => {
+    const t = new Date(e.startTime);
+    if (summaryFilterFrom && t < summaryFilterFrom) return false;
+    if (summaryFilterTo && t >= summaryFilterTo) return false;
+    return true;
+  });
+}
+
+// Preset buttons
+document.querySelectorAll('.date-filter-presets button').forEach(btn => {
+  btn.onclick = () => setFilterPreset(btn.dataset.preset);
+});
+
+// Custom date range inputs
+$('filterFrom').onchange = () => {
+  const fromVal = $('filterFrom').value;
+  const toVal = $('filterTo').value;
+  document.querySelectorAll('.date-filter-presets button').forEach(b => b.classList.remove('active'));
+  summaryFilterFrom = fromVal ? new Date(fromVal + 'T00:00:00') : null;
+  summaryFilterTo = toVal ? new Date(toVal + 'T00:00:00') : null;
+  if (summaryFilterTo) summaryFilterTo = new Date(summaryFilterTo.getTime() + 86400000);
+  renderSummary(state.data);
+};
+
+$('filterTo').onchange = () => {
+  const fromVal = $('filterFrom').value;
+  const toVal = $('filterTo').value;
+  document.querySelectorAll('.date-filter-presets button').forEach(b => b.classList.remove('active'));
+  summaryFilterFrom = fromVal ? new Date(fromVal + 'T00:00:00') : null;
+  summaryFilterTo = toVal ? new Date(toVal + 'T00:00:00') : null;
+  if (summaryFilterTo) summaryFilterTo = new Date(summaryFilterTo.getTime() + 86400000);
+  renderSummary(state.data);
+};
+
+$('filterClear').onclick = () => setFilterPreset('all');
+
+// ============================================================
+// Summary Rendering
+// ============================================================
+function renderSummary(data) {
+  const filtered = filterEntries(data.entries);
+
+  if (filtered.length === 0) {
+    const msg = (summaryFilterFrom || summaryFilterTo)
+      ? '選択した期間にデータがありません'
+      : '集計データがありません';
+    summaryContent.innerHTML = `<div class="empty-state"><p>${msg}</p></div>`;
+    return;
+  }
+
+  // Total
+  const totalDur = filtered.reduce((sum, e) => sum + e.duration, 0);
+
+  // By project
+  const byProject = {};
+  filtered.forEach(e => {
+    const pid = e.projectId || '__none__';
+    if (!byProject[pid]) byProject[pid] = 0;
+    byProject[pid] += e.duration;
+  });
+
+  const maxProjectDur = Math.max(...Object.values(byProject));
+
+  let html = `<div class="summary-section"><h3>合計: ${formatDuration(totalDur)}</h3></div>`;
+  html += `<div class="summary-section"><h3>プロジェクト別</h3>`;
+  Object.entries(byProject).sort((a,b) => b[1] - a[1]).forEach(([pid, dur]) => {
+    const proj = data.projects.find(p => p.id === pid);
+    const color = proj ? proj.color : '#888';
+    const name = proj ? escapeHtml(proj.name) : 'プロジェクトなし';
+    const pct = maxProjectDur > 0 ? (dur / maxProjectDur * 100) : 0;
+    html += `<div class="summary-row">
+      <div class="summary-label">
+        <span class="project-color-dot" style="background:${color}"></span>
+        <span>${name}</span>
+      </div>
+      <div class="summary-bar-wrap"><div class="summary-bar" style="width:${pct}%;background:${color}"></div></div>
+      <span class="summary-duration">${formatDuration(dur)}</span>
+    </div>`;
+  });
+  html += `</div>`;
+
+  // By task
+  const byTask = {};
+  filtered.forEach(e => {
+    const key = e.task || '(名称なし)';
+    if (!byTask[key]) byTask[key] = { duration: 0, projectId: e.projectId };
+    byTask[key].duration += e.duration;
+  });
+
+  const maxTaskDur = Math.max(...Object.values(byTask).map(v => v.duration));
+
+  html += `<div class="summary-section"><h3>タスク別</h3>`;
+  Object.entries(byTask).sort((a,b) => b[1].duration - a[1].duration).forEach(([task, info]) => {
+    const proj = data.projects.find(p => p.id === info.projectId);
+    const color = proj ? proj.color : '#888';
+    const pct = maxTaskDur > 0 ? (info.duration / maxTaskDur * 100) : 0;
+    html += `<div class="summary-row">
+      <div class="summary-label">
+        <span class="project-color-dot" style="background:${color}"></span>
+        <span>${escapeHtml(task)}</span>
+      </div>
+      <div class="summary-bar-wrap"><div class="summary-bar" style="width:${pct}%;background:${color}"></div></div>
+      <span class="summary-duration">${formatDuration(info.duration)}</span>
+    </div>`;
+  });
+  html += `</div>`;
+
+  summaryContent.innerHTML = html;
+}
+
+// ============================================================
+// Tabs
+// ============================================================
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.onclick = () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    const name = tab.dataset.tab;
+    $('tabTimeline').style.display = name === 'timeline' ? '' : 'none';
+    $('tabSummary').style.display = name === 'summary' ? '' : 'none';
+  };
+});
+
+// ============================================================
+// Entry Modal
+// ============================================================
+function populateProjectSelect(selectEl, currentId) {
+  let html = '<option value="">プロジェクトなし</option>';
+  state.data.projects.forEach(p => {
+    const sel = p.id === currentId ? 'selected' : '';
+    html += `<option value="${p.id}" ${sel}>${escapeHtml(p.name)}</option>`;
+  });
+  selectEl.innerHTML = html;
+}
+
+function openEntryModal(entryId) {
+  editingEntryId = entryId || null;
+  const modal = $('entryModal');
+  const titleEl = $('entryModalTitle');
+
+  populateProjectSelect($('entryEditProject'), null);
+
+  if (entryId) {
+    titleEl.textContent = 'エントリ編集';
+    const entry = state.data.entries.find(e => e.id === entryId);
+    if (!entry) return;
+    $('entryEditTask').value = entry.task;
+    $('entryEditProject').value = entry.projectId || '';
+    $('entryEditStart').value = toLocalDatetime(entry.startTime);
+    $('entryEditEnd').value = toLocalDatetime(entry.endTime);
+  } else {
+    titleEl.textContent = '手動エントリ追加';
+    $('entryEditTask').value = '';
+    $('entryEditProject').value = selectedProjectId || '';
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 3600000);
+    $('entryEditStart').value = toLocalDatetime(oneHourAgo.toISOString());
+    $('entryEditEnd').value = toLocalDatetime(now.toISOString());
+  }
+
+  modal.classList.add('open');
+}
+
+$('entryModalCancel').onclick = () => $('entryModal').classList.remove('open');
+$('entryModal').onclick = (e) => { if (e.target === $('entryModal')) $('entryModal').classList.remove('open'); };
+
+$('entryModalSave').onclick = () => {
+  const task = $('entryEditTask').value.trim();
+  const projectId = $('entryEditProject').value || null;
+  const startTime = $('entryEditStart').value;
+  const endTime = $('entryEditEnd').value;
+
+  if (!startTime || !endTime) return alert('開始日時と終了日時を入力してください');
+  if (new Date(endTime) <= new Date(startTime)) return alert('終了日時は開始日時より後にしてください');
+
+  if (editingEntryId) {
+    state.updateEntry(editingEntryId, task, projectId, startTime, endTime);
+  } else {
+    state.addEntry(task, projectId, startTime, endTime);
+  }
+  $('entryModal').classList.remove('open');
+};
+
+$('btnAddEntry').onclick = () => openEntryModal(null);
+
+// ============================================================
+// Project Modal
+// ============================================================
+let selectedColor = COLORS[0];
+
+function renderColorPicker() {
+  const picker = $('colorPicker');
+  picker.innerHTML = COLORS.map(c =>
+    `<div class="color-option${c === selectedColor ? ' selected' : ''}" style="background:${c}" data-color="${c}"></div>`
+  ).join('');
+  picker.querySelectorAll('.color-option').forEach(el => {
+    el.onclick = () => {
+      selectedColor = el.dataset.color;
+      picker.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
+      el.classList.add('selected');
+    };
+  });
+}
+
+function openProjectModal(projectId) {
+  editingProjectId = projectId || null;
+  const modal = $('projectModal');
+  const formTitle = $('projectFormTitle');
+  const saveBtn = $('projectModalSave');
+
+  if (projectId) {
+    const proj = state.getProject(projectId);
+    if (!proj) return;
+    formTitle.textContent = 'プロジェクト編集';
+    saveBtn.textContent = '更新';
+    $('projectName').value = proj.name;
+    selectedColor = proj.color;
+  } else {
+    formTitle.textContent = '新規プロジェクト';
+    saveBtn.textContent = '追加';
+    $('projectName').value = '';
+    selectedColor = COLORS[0];
+  }
+
+  renderColorPicker();
+  renderProjectList();
+  modal.classList.add('open');
+}
+
+function renderProjectList() {
+  const list = $('projectList');
+  if (state.data.projects.length === 0) {
+    list.innerHTML = '<p style="color:var(--text-muted);font-size:13px">プロジェクトがありません</p>';
+    return;
+  }
+  list.innerHTML = state.data.projects.map(p => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <span class="project-color-dot" style="background:${p.color}"></span>
+      <span style="flex:1;font-size:14px">${escapeHtml(p.name)}</span>
+      <button class="btn btn-ghost" style="font-size:12px" onclick="openProjectModal('${p.id}')">編集</button>
+      <button class="btn btn-ghost delete" style="font-size:12px;color:#e74c3c" onclick="deleteProjectConfirm('${p.id}')">削除</button>
+    </div>
+  `).join('');
+}
+
+window.deleteProjectConfirm = (id) => {
+  if (confirm('このプロジェクトを削除しますか？\n（関連エントリのプロジェクト紐付けが解除されます）')) {
+    state.deleteProject(id);
+    if (selectedProjectId === id) { selectedProjectId = null; updateSelectedProject(); }
+    renderProjectList();
+  }
+};
+
+$('btnManageProjects').onclick = () => openProjectModal(null);
+$('projectModalCancel').onclick = () => $('projectModal').classList.remove('open');
+$('projectModal').onclick = (e) => { if (e.target === $('projectModal')) $('projectModal').classList.remove('open'); };
+
+$('projectModalSave').onclick = () => {
+  const name = $('projectName').value.trim();
+  if (!name) return alert('プロジェクト名を入力してください');
+
+  if (editingProjectId) {
+    state.updateProject(editingProjectId, name, selectedColor);
+    editingProjectId = null;
+  } else {
+    const proj = state.addProject(name, selectedColor);
+    selectedProjectId = proj.id;
+    updateSelectedProject();
+  }
+  $('projectName').value = '';
+  editingProjectId = null;
+  $('projectFormTitle').textContent = '新規プロジェクト';
+  $('projectModalSave').textContent = '追加';
+  selectedColor = COLORS[0];
+  renderColorPicker();
+  renderProjectList();
+};
+
+// ============================================================
+// State Change Handler
+// ============================================================
+state.onChange(data => {
+  renderTimeline(data);
+  renderSummary(data);
+  updateSelectedProject();
+});
+
+// ============================================================
+// Init
+// ============================================================
+(async () => {
+  await state.init();
+  if (state.data.activeTimer) {
+    timerTask.value = '';
+    selectedProjectId = state.data.activeTimer.projectId;
+    updateSelectedProject();
+    startTimerTick();
+  }
+  updateStorageStatus(storage.mode === 'none' ? '' : storage.mode);
+})();
+</script>
+</body>
+</html>
