@@ -415,6 +415,66 @@ body {
   text-align: right;
 }
 
+/* Project expand/collapse */
+.summary-row-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  transition: transform 0.2s ease, color var(--transition);
+  flex-shrink: 0;
+}
+
+.summary-row-toggle:hover { color: var(--text-primary); }
+.summary-row-toggle.open { transform: rotate(0deg); }
+.summary-row-toggle.closed { transform: rotate(-90deg); }
+
+.project-tasks {
+  padding-left: 28px;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.project-tasks.collapsed {
+  max-height: 0 !important;
+}
+
+.project-task-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.project-task-row .summary-bar-wrap { flex: 1; height: 6px; }
+.project-task-row .summary-duration { font-size: 13px; min-width: 70px; }
+
+/* Storage status */
+.storage-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-right: 8px;
+}
+
+.storage-status.connected {
+  color: var(--green);
+}
+
+.storage-status.warning {
+  color: #f39c12;
+}
+
+.storage-status .status-icon {
+  font-size: 14px;
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;
@@ -641,8 +701,8 @@ body {
 <div class="header">
   <h1>TimeTrack</h1>
   <div class="header-actions">
-    <span class="status" id="storageStatus"></span>
-    <button class="btn btn-secondary" id="btnFolder" title="保存先フォルダを選択">&#128193; フォルダ選択</button>
+    <span class="storage-status warning" id="storageStatus"><span class="status-icon">&#9888;</span> 保存先未選択</span>
+    <button class="btn btn-secondary" id="btnFolder" title="保存先フォルダを選択">&#128193; 保存先フォルダ選択</button>
     <button class="btn btn-secondary" id="btnManageProjects">&#9881; プロジェクト管理</button>
   </div>
 </div>
@@ -1015,10 +1075,17 @@ const summaryContent = $('summaryContent');
 // ============================================================
 function updateStorageStatus(mode) {
   const el = $('storageStatus');
-  if (mode === 'file') el.textContent = '&#10003; フォルダ保存';
-  else if (mode === 'local') el.textContent = 'localStorage保存';
-  else el.textContent = '';
-  el.innerHTML = el.textContent;
+  if (mode === 'file') {
+    const folderName = storage.dirHandle ? storage.dirHandle.name : 'フォルダ';
+    el.className = 'storage-status connected';
+    el.innerHTML = `<span class="status-icon">&#10003;</span> ${escapeHtml(folderName)}`;
+  } else if (mode === 'local') {
+    el.className = 'storage-status warning';
+    el.innerHTML = `<span class="status-icon">&#9888;</span> localStorage保存（保存先未選択）`;
+  } else {
+    el.className = 'storage-status warning';
+    el.innerHTML = `<span class="status-icon">&#9888;</span> 保存先未選択`;
+  }
 }
 
 // ============================================================
@@ -1326,31 +1393,49 @@ function renderSummary(data) {
   // Total
   const totalDur = filtered.reduce((sum, e) => sum + e.duration, 0);
 
-  // By project
+  // By project (with per-project tasks)
   const byProject = {};
   filtered.forEach(e => {
     const pid = e.projectId || '__none__';
-    if (!byProject[pid]) byProject[pid] = 0;
-    byProject[pid] += e.duration;
+    if (!byProject[pid]) byProject[pid] = { duration: 0, tasks: {} };
+    byProject[pid].duration += e.duration;
+    const taskKey = e.task || '(名称なし)';
+    if (!byProject[pid].tasks[taskKey]) byProject[pid].tasks[taskKey] = 0;
+    byProject[pid].tasks[taskKey] += e.duration;
   });
 
-  const maxProjectDur = Math.max(...Object.values(byProject));
+  const maxProjectDur = Math.max(...Object.values(byProject).map(v => v.duration));
 
   let html = `<div class="summary-section"><h3>合計: ${formatDuration(totalDur)}</h3></div>`;
   html += `<div class="summary-section"><h3>プロジェクト別</h3>`;
-  Object.entries(byProject).sort((a,b) => b[1] - a[1]).forEach(([pid, dur]) => {
+  Object.entries(byProject).sort((a,b) => b[1].duration - a[1].duration).forEach(([pid, info]) => {
     const proj = data.projects.find(p => p.id === pid);
     const color = proj ? proj.color : '#888';
     const name = proj ? escapeHtml(proj.name) : 'プロジェクトなし';
-    const pct = maxProjectDur > 0 ? (dur / maxProjectDur * 100) : 0;
-    html += `<div class="summary-row">
+    const pct = maxProjectDur > 0 ? (info.duration / maxProjectDur * 100) : 0;
+    const taskEntries = Object.entries(info.tasks).sort((a,b) => b[1] - a[1]);
+    const maxTaskInProject = Math.max(...taskEntries.map(t => t[1]));
+
+    html += `<div class="summary-row" data-project-toggle="${pid}" style="cursor:pointer">
+      <button class="summary-row-toggle closed" data-pid="${pid}">&#9660;</button>
       <div class="summary-label">
         <span class="project-color-dot" style="background:${color}"></span>
         <span>${name}</span>
       </div>
       <div class="summary-bar-wrap"><div class="summary-bar" style="width:${pct}%;background:${color}"></div></div>
-      <span class="summary-duration">${formatDuration(dur)}</span>
+      <span class="summary-duration">${formatDuration(info.duration)}</span>
     </div>`;
+
+    html += `<div class="project-tasks collapsed" data-project-tasks="${pid}">`;
+    taskEntries.forEach(([task, dur]) => {
+      const taskPct = maxTaskInProject > 0 ? (dur / maxTaskInProject * 100) : 0;
+      html += `<div class="project-task-row">
+        <span style="flex:0 0 auto;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(task)}</span>
+        <div class="summary-bar-wrap"><div class="summary-bar" style="width:${taskPct}%;background:${color};opacity:0.6"></div></div>
+        <span class="summary-duration">${formatDuration(dur)}</span>
+      </div>`;
+    });
+    html += `</div>`;
   });
   html += `</div>`;
 
@@ -1381,6 +1466,27 @@ function renderSummary(data) {
   html += `</div>`;
 
   summaryContent.innerHTML = html;
+
+  // Project expand/collapse handlers
+  summaryContent.querySelectorAll('[data-project-toggle]').forEach(row => {
+    row.onclick = () => {
+      const pid = row.dataset.projectToggle;
+      const tasksEl = summaryContent.querySelector(`[data-project-tasks="${pid}"]`);
+      const toggleBtn = row.querySelector('.summary-row-toggle');
+      if (!tasksEl) return;
+      if (tasksEl.classList.contains('collapsed')) {
+        tasksEl.classList.remove('collapsed');
+        tasksEl.style.maxHeight = tasksEl.scrollHeight + 'px';
+        toggleBtn.classList.remove('closed');
+        toggleBtn.classList.add('open');
+      } else {
+        tasksEl.classList.add('collapsed');
+        tasksEl.style.maxHeight = '0';
+        toggleBtn.classList.remove('open');
+        toggleBtn.classList.add('closed');
+      }
+    };
+  });
 }
 
 // ============================================================
