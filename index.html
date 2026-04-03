@@ -56,12 +56,6 @@ body {
   align-items: center;
 }
 
-.header-actions .status {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-right: 8px;
-}
-
 /* Buttons */
 .btn {
   padding: 8px 16px;
@@ -590,23 +584,6 @@ body {
   font-size: 13px;
 }
 
-/* Welcome screen */
-.welcome {
-  text-align: center;
-  padding: 80px 20px;
-}
-
-.welcome h2 {
-  font-size: 24px;
-  margin-bottom: 12px;
-}
-
-.welcome p {
-  color: var(--text-secondary);
-  margin-bottom: 24px;
-  font-size: 15px;
-}
-
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -694,6 +671,23 @@ body {
 }
 
 .date-filter-clear:hover { color: var(--text-primary); }
+
+/* Virtual scroll */
+.virtual-scroll-container {
+  position: relative;
+  overflow-y: auto;
+  max-height: calc(100vh - 260px);
+}
+
+.virtual-scroll-spacer {
+  width: 100%;
+}
+
+.virtual-scroll-content {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
 </style>
 </head>
 <body>
@@ -810,12 +804,18 @@ body {
 const COLORS = ['#e94560','#4ecca3','#3498db','#f39c12','#9b59b6','#1abc9c','#e67e22','#2ecc71'];
 
 // ============================================================
-// StorageAdapter
+// StorageAdapter — monthly file splitting
+// ============================================================
+// File structure:
+//   meta.json           — { version, projects, activeTimer }
+//   entries_YYYY-MM.json — [ ...entries for that month ]
+//
+// Legacy migration: if data.json exists, it is read, split, and
+// the old file is kept as a backup.
 // ============================================================
 class StorageAdapter {
   constructor() {
     this.dirHandle = null;
-    this.fileHandle = null;
     this.supportsFS = typeof window.showDirectoryPicker === 'function';
   }
 
@@ -827,43 +827,111 @@ class StorageAdapter {
     if (!this.supportsFS) return false;
     try {
       this.dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-      this.fileHandle = await this.dirHandle.getFileHandle('data.json', { create: true });
       return true;
     } catch {
       return false;
     }
   }
 
-  async save(data) {
-    const json = JSON.stringify(data, null, 2);
-    if (this.fileHandle) {
-      try {
-        const writable = await this.fileHandle.createWritable();
-        await writable.write(json);
-        await writable.close();
-        return 'file';
-      } catch {
-        // fall through to localStorage
-      }
+  // ---- File helpers ----
+  async _readFile(name) {
+    if (!this.dirHandle) return null;
+    try {
+      const fh = await this.dirHandle.getFileHandle(name);
+      const file = await fh.getFile();
+      const text = await file.text();
+      return text.trim() ? JSON.parse(text) : null;
+    } catch { return null; }
+  }
+
+  async _writeFile(name, obj) {
+    if (!this.dirHandle) return false;
+    try {
+      const fh = await this.dirHandle.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(JSON.stringify(obj, null, 2));
+      await w.close();
+      return true;
+    } catch { return false; }
+  }
+
+  async _listEntryFiles() {
+    if (!this.dirHandle) return [];
+    const names = [];
+    for await (const [name] of this.dirHandle) {
+      if (/^entries_\d{4}-\d{2}\.json$/.test(name)) names.push(name);
     }
-    localStorage.setItem('timetrack_data', json);
+    return names.sort();
+  }
+
+  // ---- Public API ----
+  async save(data) {
+    // Build meta (everything except entries)
+    const meta = {
+      version: data.version,
+      projects: data.projects,
+      activeTimer: data.activeTimer
+    };
+
+    // Group entries by month
+    const byMonth = {};
+    data.entries.forEach(e => {
+      const mk = monthKey(e.startTime);
+      if (!byMonth[mk]) byMonth[mk] = [];
+      byMonth[mk].push(e);
+    });
+
+    if (this.dirHandle) {
+      try {
+        // Write meta
+        await this._writeFile('meta.json', meta);
+        // Write only dirty months
+        const dirtyMonths = data._dirtyMonths || Object.keys(byMonth);
+        for (const mk of dirtyMonths) {
+          await this._writeFile(`entries_${mk}.json`, byMonth[mk] || []);
+        }
+        data._dirtyMonths = [];
+        return 'file';
+      } catch { /* fall through */ }
+    }
+
+    // localStorage fallback — store everything together
+    const flat = { ...meta, entries: data.entries };
+    localStorage.setItem('timetrack_data', JSON.stringify(flat));
     return 'local';
   }
 
   async load() {
-    if (this.fileHandle) {
-      try {
-        const file = await this.fileHandle.getFile();
-        const text = await file.text();
-        if (text.trim()) return JSON.parse(text);
-      } catch { /* fall through */ }
+    if (this.dirHandle) {
+      // Try new monthly format first
+      const meta = await this._readFile('meta.json');
+      if (meta) {
+        const entryFiles = await this._listEntryFiles();
+        let entries = [];
+        for (const name of entryFiles) {
+          const arr = await this._readFile(name);
+          if (Array.isArray(arr)) entries = entries.concat(arr);
+        }
+        return { ...meta, entries };
+      }
+      // Legacy migration: single data.json
+      const legacy = await this._readFile('data.json');
+      if (legacy && legacy.version) {
+        return legacy;  // caller will save in new format via commit()
+      }
     }
     const raw = localStorage.getItem('timetrack_data');
     return raw ? JSON.parse(raw) : null;
   }
 
   exportJSON(data) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const flat = {
+      version: data.version,
+      projects: data.projects,
+      activeTimer: data.activeTimer,
+      entries: data.entries
+    };
+    const blob = new Blob([JSON.stringify(flat, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -893,7 +961,7 @@ class StorageAdapter {
 class AppState {
   constructor(storage) {
     this.storage = storage;
-    this.data = { version: 1, projects: [], entries: [], activeTimer: null };
+    this.data = { version: 1, projects: [], entries: [], activeTimer: null, _dirtyMonths: [] };
     this.listeners = [];
     this._saveTimeout = null;
   }
@@ -901,7 +969,7 @@ class AppState {
   async init() {
     const saved = await this.storage.load();
     if (saved && saved.version) {
-      this.data = saved;
+      this.data = { ...saved, _dirtyMonths: [] };
     }
     this.notify();
   }
@@ -909,6 +977,12 @@ class AppState {
   onChange(fn) { this.listeners.push(fn); }
 
   notify() { this.listeners.forEach(fn => fn(this.data)); }
+
+  _markDirty(iso) {
+    const mk = monthKey(iso);
+    if (!this.data._dirtyMonths) this.data._dirtyMonths = [];
+    if (!this.data._dirtyMonths.includes(mk)) this.data._dirtyMonths.push(mk);
+  }
 
   _scheduleSave() {
     clearTimeout(this._saveTimeout);
@@ -940,6 +1014,9 @@ class AppState {
     this.data.projects = this.data.projects.filter(p => p.id !== id);
     this.data.entries.forEach(e => { if (e.projectId === id) e.projectId = null; });
     if (this.data.activeTimer?.projectId === id) this.data.activeTimer.projectId = null;
+    // Mark all months dirty since entries may span many months
+    const months = new Set(this.data.entries.filter(e => e.projectId === null).map(e => monthKey(e.startTime)));
+    months.forEach(mk => { if (!this.data._dirtyMonths.includes(mk)) this.data._dirtyMonths.push(mk); });
     this.commit();
   }
 
@@ -966,6 +1043,7 @@ class AppState {
       duration
     };
     this.data.entries.push(entry);
+    this._markDirty(entry.startTime);
     this.data.activeTimer = null;
     this.commit();
     return entry;
@@ -986,6 +1064,7 @@ class AppState {
       duration
     };
     this.data.entries.push(entry);
+    this._markDirty(entry.startTime);
     this.commit();
     return entry;
   }
@@ -993,6 +1072,7 @@ class AppState {
   updateEntry(id, task, projectId, startTime, endTime) {
     const e = this.data.entries.find(e => e.id === id);
     if (!e) return;
+    this._markDirty(e.startTime); // old month
     const start = new Date(startTime);
     const end = new Date(endTime);
     e.task = task || '(名称なし)';
@@ -1000,10 +1080,13 @@ class AppState {
     e.startTime = start.toISOString();
     e.endTime = end.toISOString();
     e.duration = Math.round((end - start) / 1000);
+    this._markDirty(e.startTime); // new month (may differ)
     this.commit();
   }
 
   deleteEntry(id) {
+    const e = this.data.entries.find(e => e.id === id);
+    if (e) this._markDirty(e.startTime);
     this.data.entries = this.data.entries.filter(e => e.id !== id);
     this.commit();
   }
@@ -1033,6 +1116,11 @@ function formatDateGroup(iso) {
 function dateKey(iso) {
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function monthKey(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
 function toLocalDatetime(iso) {
@@ -1097,11 +1185,15 @@ $('btnFolder').onclick = async () => {
     if (ok) {
       const saved = await storage.load();
       if (saved && saved.version && saved.entries?.length > 0) {
-        state.data = saved;
-        state.commit();
+        // Mark all months dirty so they get written in new format
+        const allMonths = [...new Set(saved.entries.map(e => monthKey(e.startTime)))];
+        state.data = { ...saved, _dirtyMonths: allMonths };
       } else {
-        await storage.save(state.data);
+        // Write current data to new folder in monthly format
+        const allMonths = [...new Set(state.data.entries.map(e => monthKey(e.startTime)))];
+        state.data._dirtyMonths = allMonths;
       }
+      state.commit();
       updateStorageStatus('file');
     }
   } else {
@@ -1111,7 +1203,7 @@ $('btnFolder').onclick = async () => {
     } else {
       const imported = await storage.importJSON();
       if (imported && imported.version) {
-        state.data = imported;
+        state.data = { ...imported, _dirtyMonths: [] };
         state.commit();
       }
     }
@@ -1216,17 +1308,26 @@ function updateSelectedProject() {
 }
 
 // ============================================================
-// Timeline View
+// Timeline View — Virtual Scroll
 // ============================================================
-function renderTimeline(data) {
+// Flatten sorted entries into "rows" where each row is either
+// a day-header or an entry-card. We assign fixed heights and
+// only render the visible window.
+// ============================================================
+const ROW_HEIGHT_HEADER = 45;  // day-header height in px
+const ROW_HEIGHT_ENTRY = 56;   // entry-card height in px
+const SCROLL_BUFFER = 5;       // extra rows above/below viewport
+
+let vsRows = [];       // { type:'header'|'entry', ... }
+let vsContainer = null;
+let vsSpacer = null;
+let vsContent = null;
+
+function buildVirtualRows(data) {
   const entries = [...data.entries].sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
-  if (entries.length === 0) {
-    timelineContent.innerHTML = `<div class="empty-state">
-      <p>まだ記録がありません</p>
-      <p class="hint">上のタイマーで計測を開始するか、「+ 手動追加」で記録を追加してください</p>
-    </div>`;
-    return;
-  }
+  const rows = [];
+
+  if (entries.length === 0) return rows;
 
   const groups = {};
   entries.forEach(e => {
@@ -1236,19 +1337,97 @@ function renderTimeline(data) {
     groups[dk].total += e.duration;
   });
 
-  let html = '';
   Object.keys(groups).sort().reverse().forEach(dk => {
     const g = groups[dk];
-    html += `<div class="day-group">
-      <div class="day-header">
-        <span class="day-header-date">${formatDateGroup(g.date)}</span>
-        <span class="day-header-total">合計 ${formatDuration(g.total)}</span>
-      </div>`;
+    rows.push({ type: 'header', date: g.date, total: g.total, height: ROW_HEIGHT_HEADER });
     g.entries.forEach(e => {
+      rows.push({ type: 'entry', entry: e, height: ROW_HEIGHT_ENTRY });
+    });
+  });
+
+  return rows;
+}
+
+function renderVirtualTimeline(data) {
+  vsRows = buildVirtualRows(data);
+
+  if (vsRows.length === 0) {
+    timelineContent.innerHTML = `<div class="empty-state">
+      <p>まだ記録がありません</p>
+      <p class="hint">上のタイマーで計測を開始するか、「+ 手動追加」で記録を追加してください</p>
+    </div>`;
+    return;
+  }
+
+  // Set up container if not present
+  if (!vsContainer) {
+    timelineContent.innerHTML = '';
+    vsContainer = document.createElement('div');
+    vsContainer.className = 'virtual-scroll-container';
+    vsSpacer = document.createElement('div');
+    vsSpacer.className = 'virtual-scroll-spacer';
+    vsContent = document.createElement('div');
+    vsContent.className = 'virtual-scroll-content';
+    vsContainer.appendChild(vsSpacer);
+    vsContainer.appendChild(vsContent);
+    timelineContent.appendChild(vsContainer);
+
+    vsContainer.addEventListener('scroll', () => renderVisibleRows(data));
+  }
+
+  // Compute total height
+  const totalHeight = vsRows.reduce((sum, r) => sum + r.height, 0);
+  vsSpacer.style.height = totalHeight + 'px';
+
+  renderVisibleRows(data);
+}
+
+function renderVisibleRows(data) {
+  if (!vsContainer || vsRows.length === 0) return;
+
+  const scrollTop = vsContainer.scrollTop;
+  const viewportHeight = vsContainer.clientHeight;
+
+  // Find first visible row
+  let accum = 0;
+  let startIdx = 0;
+  for (let i = 0; i < vsRows.length; i++) {
+    if (accum + vsRows[i].height > scrollTop) { startIdx = i; break; }
+    accum += vsRows[i].height;
+  }
+
+  // Find last visible row
+  let endIdx = startIdx;
+  let visibleAccum = accum;
+  for (let i = startIdx; i < vsRows.length; i++) {
+    endIdx = i;
+    visibleAccum += vsRows[i].height;
+    if (visibleAccum >= scrollTop + viewportHeight) break;
+  }
+
+  // Add buffer
+  startIdx = Math.max(0, startIdx - SCROLL_BUFFER);
+  endIdx = Math.min(vsRows.length - 1, endIdx + SCROLL_BUFFER);
+
+  // Compute offset for startIdx
+  let offsetTop = 0;
+  for (let i = 0; i < startIdx; i++) offsetTop += vsRows[i].height;
+
+  // Render only visible rows
+  let html = '';
+  for (let i = startIdx; i <= endIdx; i++) {
+    const row = vsRows[i];
+    if (row.type === 'header') {
+      html += `<div class="day-header" style="height:${ROW_HEIGHT_HEADER}px">
+        <span class="day-header-date">${formatDateGroup(row.date)}</span>
+        <span class="day-header-total">合計 ${formatDuration(row.total)}</span>
+      </div>`;
+    } else {
+      const e = row.entry;
       const proj = data.projects.find(p => p.id === e.projectId);
       const color = proj ? proj.color : '#555';
       const projName = proj ? escapeHtml(proj.name) : 'プロジェクトなし';
-      html += `<div class="entry-card" data-id="${e.id}">
+      html += `<div class="entry-card" style="height:${ROW_HEIGHT_ENTRY - 4}px" data-id="${e.id}">
         <div class="entry-color" style="background:${color}"></div>
         <div class="entry-info">
           <div class="entry-task">${escapeHtml(e.task)}</div>
@@ -1263,15 +1442,17 @@ function renderTimeline(data) {
           <button class="delete" title="削除" data-id="${e.id}">&times;</button>
         </div>
       </div>`;
-    });
-    html += `</div>`;
-  });
-  timelineContent.innerHTML = html;
+    }
+  }
 
-  timelineContent.querySelectorAll('.entry-actions .edit').forEach(btn => {
+  vsContent.style.top = offsetTop + 'px';
+  vsContent.innerHTML = html;
+
+  // Bind action handlers
+  vsContent.querySelectorAll('.entry-actions .edit').forEach(btn => {
     btn.onclick = () => openEntryModal(btn.dataset.id);
   });
-  timelineContent.querySelectorAll('.entry-actions .delete').forEach(btn => {
+  vsContent.querySelectorAll('.entry-actions .delete').forEach(btn => {
     btn.onclick = () => {
       if (confirm('このエントリを削除しますか？')) state.deleteEntry(btn.dataset.id);
     };
@@ -1661,7 +1842,8 @@ $('projectModalSave').onclick = () => {
 // State Change Handler
 // ============================================================
 state.onChange(data => {
-  renderTimeline(data);
+  vsContainer = null; // reset virtual scroll on data change
+  renderVirtualTimeline(data);
   renderSummary(data);
   updateSelectedProject();
 });
