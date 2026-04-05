@@ -32,8 +32,19 @@ start index.html       # Windows
 
 | ブラウザ | 保存方式 |
 |---------|---------|
-| Chrome / Edge | File System Access API で選択フォルダに `data.json` を自動保存 |
+| Chrome / Edge | File System Access API で選択フォルダに JSON ファイルを自動保存 |
 | Firefox / Safari | localStorage に保存。JSON ファイルのエクスポート/インポートで持ち出し可能 |
+
+**推奨の保存先フォルダ（初回のみ手動選択）:**
+
+| OS | 推奨パス |
+|----|---------|
+| macOS | `~/.timetrack`（ホームディレクトリ直下） |
+| Windows | `%LOCALAPPDATA%\.timetrack`（例: `C:\Users\username\AppData\Local\.timetrack`） |
+
+フォルダが存在しない場合は事前に作成してから「保存先フォルダ選択」で指定してください。  
+一度選択するとブラウザの IndexedDB にハンドルが保存され、次回以降は自動的に再接続します。  
+ブラウザ再起動後に権限が失効した場合は「保存先に再接続」ボタンが表示されます。
 
 ## 機能一覧
 
