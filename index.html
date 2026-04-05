@@ -672,6 +672,17 @@ body {
 
 .date-filter-clear:hover { color: var(--text-primary); }
 
+/* Archived project badge */
+.project-archived-badge {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
 /* Virtual scroll */
 .virtual-scroll-container {
   position: relative;
@@ -1010,6 +1021,16 @@ class AppState {
     if (p) { p.name = name; p.color = color; this.commit(); }
   }
 
+  archiveProject(id) {
+    const p = this.data.projects.find(p => p.id === id);
+    if (p) { p.archived = true; this.commit(); }
+  }
+
+  unarchiveProject(id) {
+    const p = this.data.projects.find(p => p.id === id);
+    if (p) { p.archived = false; this.commit(); }
+  }
+
   deleteProject(id) {
     this.data.projects = this.data.projects.filter(p => p.id !== id);
     this.data.entries.forEach(e => { if (e.projectId === id) e.projectId = null; });
@@ -1247,6 +1268,11 @@ btnTimer.onclick = () => {
     stopTimerTick();
     updateTimerDisplay();
   } else {
+    const selProj = selectedProjectId ? state.getProject(selectedProjectId) : null;
+    if (selProj && selProj.archived) {
+      alert(`「${selProj.name}」はアーカイブ済みのため、時間を計上できません。\nプロジェクトを変更してください。`);
+      return;
+    }
     state.startTimer(timerTask.value.trim(), selectedProjectId);
     timerTask.value = '';
     startTimerTick();
@@ -1271,7 +1297,7 @@ document.addEventListener('click', () => {
 });
 
 function renderProjectDropdown() {
-  const projects = state.data.projects;
+  const projects = state.data.projects.filter(p => !p.archived);
   let html = `<div class="project-dropdown-item" data-id="">
     <span class="project-color-dot" style="background:#888"></span>
     <span>プロジェクトなし</span>
@@ -1689,8 +1715,10 @@ document.querySelectorAll('.tab').forEach(tab => {
 function populateProjectSelect(selectEl, currentId) {
   let html = '<option value="">プロジェクトなし</option>';
   state.data.projects.forEach(p => {
+    if (p.archived && p.id !== currentId) return; // アーカイブ済みは非表示（既存選択中は除く）
     const sel = p.id === currentId ? 'selected' : '';
-    html += `<option value="${p.id}" ${sel}>${escapeHtml(p.name)}</option>`;
+    const label = p.archived ? `${escapeHtml(p.name)} [アーカイブ]` : escapeHtml(p.name);
+    html += `<option value="${p.id}" ${sel} ${p.archived ? 'disabled' : ''}>${label}</option>`;
   });
   selectEl.innerHTML = html;
 }
@@ -1791,19 +1819,44 @@ function openProjectModal(projectId) {
 
 function renderProjectList() {
   const list = $('projectList');
+  const active = state.data.projects.filter(p => !p.archived);
+  const archived = state.data.projects.filter(p => p.archived);
+
   if (state.data.projects.length === 0) {
     list.innerHTML = '<p style="color:var(--text-muted);font-size:13px">プロジェクトがありません</p>';
     return;
   }
-  list.innerHTML = state.data.projects.map(p => `
-    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+
+  const rowHtml = (p) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);${p.archived ? 'opacity:0.6' : ''}">
       <span class="project-color-dot" style="background:${p.color}"></span>
       <span style="flex:1;font-size:14px">${escapeHtml(p.name)}</span>
-      <button class="btn btn-ghost" style="font-size:12px" onclick="openProjectModal('${p.id}')">編集</button>
+      ${p.archived ? '<span class="project-archived-badge">アーカイブ</span>' : ''}
+      ${!p.archived ? `<button class="btn btn-ghost" style="font-size:12px" onclick="openProjectModal('${p.id}')">編集</button>` : ''}
+      <button class="btn btn-ghost" style="font-size:12px;color:var(--text-muted)" onclick="archiveProjectToggle('${p.id}', ${!!p.archived})">${p.archived ? '解除' : 'アーカイブ'}</button>
       <button class="btn btn-ghost delete" style="font-size:12px;color:#e74c3c" onclick="deleteProjectConfirm('${p.id}')">削除</button>
     </div>
-  `).join('');
+  `;
+
+  let html = active.map(rowHtml).join('');
+  if (archived.length > 0) {
+    html += `<p style="font-size:12px;color:var(--text-muted);margin:12px 0 4px">アーカイブ済み</p>`;
+    html += archived.map(rowHtml).join('');
+  }
+  list.innerHTML = html;
 }
+
+window.archiveProjectToggle = (id, isArchived) => {
+  if (isArchived) {
+    state.unarchiveProject(id);
+  } else {
+    if (!confirm('このプロジェクトをアーカイブしますか？\n（新規タスクの計上ができなくなります。過去データは引き続き表示されます）')) return;
+    state.archiveProject(id);
+    // アーカイブされたプロジェクトがタイマーバーで選択中の場合は解除
+    if (selectedProjectId === id) { selectedProjectId = null; updateSelectedProject(); }
+  }
+  renderProjectList();
+};
 
 window.deleteProjectConfirm = (id) => {
   if (confirm('このプロジェクトを削除しますか？\n（関連エントリのプロジェクト紐付けが解除されます）')) {
