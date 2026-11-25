@@ -491,6 +491,25 @@ test('時間の入力形式', () => {
   assert.equal(TT.formatDuration(5415, 'hms'), '1:30:15');
   assert.equal(TT.formatDuration(5415, 'hm'), '1:30');
   assert.equal(TT.formatDuration(5400, 'decimal'), '1.50 h');
+  // 日時の入力欄は分単位（CSV などは秒まで）
+  assert.equal(TT.toLocalInput('2026-03-15T23:04:37.000Z', false), '2026-03-16T08:04');
+  assert.equal(TT.toLocalInput('2026-03-15T23:04:37.000Z'), '2026-03-16T08:04:37');
+  assert.equal(TT.parseLocalInput('2026-03-16T08:04').toISOString(), '2026-03-15T23:04:00.000Z');
+});
+
+test('タスク名の候補: プロジェクトを指定するとそのプロジェクトの履歴だけ', () => {
+  const e = (id, task, projectId, day) => ({ id, task, projectId, startTime: `2026-04-${day}T00:00:00.000Z`, endTime: `2026-04-${day}T01:00:00.000Z`, duration: 3600 });
+  const entries = [
+    e('e1', '設計', 'proj_a', '01'), e('e2', 'MTG', 'proj_b', '02'), e('e3', '設計', 'proj_b', '03'),
+    e('e4', 'メール', null, '04'), e('e5', 'MTG', 'proj_a', '05'), e('e6', '(名称なし)', 'proj_a', '06'),
+  ];
+  const tasks = list => plain(list).map(s => `${s.task}@${s.projectId}`);
+  // 全履歴: タスク名ごとに最新のプロジェクト
+  assert.deepEqual(tasks(TT.recentTasks(entries)), ['MTG@proj_a', 'メール@null', '設計@proj_b']);
+  // プロジェクト別: 他のプロジェクトで最後に使ったタスク名も含める
+  assert.deepEqual(tasks(TT.recentTasks(entries, 200, 'proj_a')), ['MTG@proj_a', '設計@proj_a']);
+  assert.deepEqual(tasks(TT.recentTasks(entries, 200, 'proj_b')), ['設計@proj_b', 'MTG@proj_b']);
+  assert.deepEqual(tasks(TT.recentTasks(entries, 200, null)), ['メール@null']);
 });
 
 test('CSV はエスケープと数式インジェクション対策を行う', () => {

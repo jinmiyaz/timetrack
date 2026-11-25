@@ -625,7 +625,8 @@ body.is-running .timer-display:hover { background: var(--input); }
     <form id="entryForm" novalidate autocomplete="off">
       <div class="form-group">
         <label for="efTask">タスク名</label>
-        <input id="efTask" type="text" list="taskSuggestions" maxlength="500" placeholder="(名称なし)">
+        <input id="efTask" type="text" list="efTaskSuggestions" maxlength="500" placeholder="(名称なし)">
+        <datalist id="efTaskSuggestions"></datalist>
       </div>
       <div class="form-group">
         <label for="efProject">プロジェクト</label>
@@ -634,16 +635,16 @@ body.is-running .timer-display:hover { background: var(--input); }
       <div class="form-row">
         <div class="form-group">
           <label for="efStart">開始</label>
-          <input id="efStart" type="datetime-local" step="1" required>
+          <input id="efStart" type="datetime-local" step="60" required>
         </div>
         <div class="form-group" id="efEndGroup">
           <label for="efEnd">終了</label>
-          <input id="efEnd" type="datetime-local" step="1" required>
+          <input id="efEnd" type="datetime-local" step="60" required>
         </div>
       </div>
       <div class="form-group">
         <label for="efDuration">時間</label>
-        <input id="efDuration" type="text" placeholder="例: 1:30:00 / 90m / 1.5h">
+        <input id="efDuration" type="text" placeholder="例: 1:30 / 90m / 1.5h">
         <div class="form-hint" id="efHint"></div>
       </div>
       <div class="form-error" id="efError" role="alert"></div>
@@ -805,10 +806,11 @@ const TT = (() => {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
     return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
   }
-  /** datetime-local 用（秒まで） */
-  function toLocalInput(v) {
+  /** datetime-local 用（withSeconds = false なら分まで） */
+  function toLocalInput(v, withSeconds = true) {
     const d = toDate(v);
-    return `${dateKey(d)}T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+    const hm = `${dateKey(d)}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    return withSeconds ? `${hm}:${pad2(d.getSeconds())}` : hm;
   }
   function parseLocalInput(s) {
     const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/.exec(s || '');
@@ -1050,10 +1052,13 @@ const TT = (() => {
     }
     return { unit, bins };
   }
-  /** 最近使ったタスク名（重複なし・新しい順） */
-  function recentTasks(entries, limit = 200) {
+  /** 最近使ったタスク名（重複なし・新しい順）。projectId を指定するとそのプロジェクトの履歴だけ（null はプロジェクトなし） */
+  function recentTasks(entries, limit = 200, projectId) {
     const list = [];
-    for (const e of entries) if (isValidEntry(e)) list.push([timeOf(e.startTime), e]);
+    for (const e of entries) {
+      if (!isValidEntry(e) || (projectId !== undefined && (e.projectId || null) !== projectId)) continue;
+      list.push([timeOf(e.startTime), e]);
+    }
     list.sort((a, b) => b[0] - a[0]);
     const seen = new Map();
     for (const [, e] of list) {
@@ -1706,7 +1711,7 @@ function openModal(id, focusSelector) {
   if (modalStack.some(m => m.el === el)) return;
   modalStack.push({ el, prevFocus: document.activeElement });
   el.hidden = false;
-  requestAnimationFrame(() => el.classList.add('open'));
+  requestAnimationFrame(() => { if (modalStack.some(m => m.el === el)) el.classList.add('open'); }); // 開いた直後に閉じた場合は開かない
   const target = (focusSelector && el.querySelector(focusSelector)) ||
     el.querySelector('input:not([disabled]):not([type=hidden]), select, .btn-primary');
   setTimeout(() => { if (target) target.focus(); }, 30);
@@ -1987,6 +1992,7 @@ function setFavicon(running) {
 }
 
 function renderTimerBar() {
+  renderSuggestions();
   const t = store.data.activeTimer;
   const running = !!t;
   document.body.classList.toggle('is-running', running);
@@ -2314,17 +2320,30 @@ function renderProjectFilter() {
   sel.value = Array.from(sel.options).some(o => o.value === cur) ? cur : '';
 }
 
-let suggestions = [];
-let suggestionsRev = -1;
-function renderSuggestions() {
-  if (suggestionsRev === store.rev) return;
-  suggestionsRev = store.rev;
-  suggestions = recentTasks(store.data.entries, 200);
-  const pm = projectMap();
-  byId('taskSuggestions').innerHTML = suggestions.map(s => {
-    const p = pm.get(s.projectId);
+/**
+ * タスク名の候補。プロジェクトを選んでいるときはそのプロジェクトの履歴だけ、
+ * 未選択のときは全履歴（選ぶとそのタスクの前回のプロジェクトを自動選択する）
+ */
+function taskSuggestionsFor(projectId) {
+  return recentTasks(store.data.entries, 200, projectId || undefined);
+}
+function suggestionOptions(list, withProject) {
+  const pm = withProject ? projectMap() : null;
+  return list.map(s => {
+    const p = pm && pm.get(s.projectId);
     return `<option value="${esc(s.task)}">${p ? esc(p.name) : ''}</option>`;
   }).join('');
+}
+let suggestions = [];
+let suggestionsKey = '';
+function renderSuggestions() {
+  const t = store.data.activeTimer;
+  const pid = (t ? t.projectId : usableProjectId(selectedProjectId)) || null;
+  const key = `${store.rev}|${pid}`;
+  if (suggestionsKey === key) return;
+  suggestionsKey = key;
+  suggestions = taskSuggestionsFor(pid);
+  byId('taskSuggestions').innerHTML = suggestionOptions(suggestions, !pid);
 }
 
 const quick = { key: '', today: 0, week: 0 };
@@ -2540,7 +2559,7 @@ function toggleSummaryProject(row) {
 // ============================================================
 // エントリ編集モーダル（edit / new / running）
 // ============================================================
-const ef = { mode: null, id: null, initial: null };
+const ef = { mode: null, id: null, initial: null, orig: null, durShown: '' };
 const efEl = id => byId(id);
 
 function populateProjectSelect(sel, currentId) {
@@ -2584,7 +2603,8 @@ function openEntryModal(mode, id = null) {
     now.setSeconds(0, 0);
     let s = now.getTime() - 3600000;
     const lastEnd = latestEndBefore(now.getTime());
-    if (lastEnd && lastEnd > s && lastEnd < now.getTime()) s = lastEnd;
+    const after = lastEnd && Math.ceil(lastEnd / 60000) * 60000; // 時刻は分単位で入力するため、直前の終了を分に切り上げる
+    if (lastEnd && lastEnd > s && after < now.getTime()) s = after;
     start = new Date(s); end = now;
   }
   ef.mode = mode; ef.id = id;
@@ -2593,8 +2613,10 @@ function openEntryModal(mode, id = null) {
   efEl('efDelete').textContent = mode === 'running' ? '計測を破棄' : '削除';
   efEl('efTask').value = task;
   populateProjectSelect(efEl('efProject'), projectId);
-  efEl('efStart').value = toLocalInput(start);
-  efEl('efEnd').value = end ? toLocalInput(end) : '';
+  renderEntrySuggestions();
+  efEl('efStart').value = toLocalInput(start, false);
+  efEl('efEnd').value = end ? toLocalInput(end, false) : '';
+  ef.orig = { start: validDate(start), end: end ? validDate(end) : null };
   efEl('efEndGroup').hidden = mode === 'running';
   efEl('efDuration').disabled = mode === 'running';
   efEl('efError').textContent = '';
@@ -2603,32 +2625,49 @@ function openEntryModal(mode, id = null) {
   openModal('entryModal', '#efTask');
 }
 
+const validDate = v => { const d = new Date(v); return isNaN(d) ? null : d; };
+function renderEntrySuggestions() {
+  const pid = efEl('efProject').value || null;
+  efEl('efTaskSuggestions').innerHTML = suggestionOptions(taskSuggestionsFor(pid), !pid);
+}
+/**
+ * フォームの開始・終了日時。入力欄は分単位なので、時刻欄を変更していなければ元の値（秒まで）を使い、
+ * 変更したときは開始・終了とも入力どおり（秒は 0）にする
+ */
+function formTimes() {
+  const changed = efEl('efStart').value !== ef.initial.start || (ef.mode !== 'running' && efEl('efEnd').value !== ef.initial.end);
+  if (!changed) return { s: ef.orig.start, e: ef.orig.end, changed };
+  return { s: parseLocalInput(efEl('efStart').value), e: parseLocalInput(efEl('efEnd').value), changed };
+}
+
+/** 重なっているエントリの数（分単位で入力するため、1 分未満の重なりは数えない） */
 function countOverlaps(s, e, exceptId) {
   let n = 0;
   const a = s.getTime(), b = e.getTime();
   for (const x of store.data.entries) {
     if (x.id === exceptId || !isValidEntry(x)) continue;
-    if (timeOf(x.startTime) < b && timeOf(x.endTime) > a) n++;
+    if (Math.min(b, timeOf(x.endTime)) - Math.max(a, timeOf(x.startTime)) >= 60000) n++;
   }
   return n;
 }
 
 function updateEntryDerived() {
   const hint = efEl('efHint');
-  const s = parseLocalInput(efEl('efStart').value);
+  const { s, e } = formTimes();
   hint.className = 'form-hint';
   if (ef.mode === 'running') {
     efEl('efDuration').value = s ? formatHMS((Date.now() - s.getTime()) / 1000) : '';
     hint.textContent = '開始時刻を変更すると経過時間も変わります';
     return;
   }
-  const e = parseLocalInput(efEl('efEnd').value);
   if (s && e && e > s) {
-    if (document.activeElement !== efEl('efDuration')) efEl('efDuration').value = formatHMS((e - s) / 1000);
+    ef.durShown = formatDuration((e - s) / 1000, 'hm');
+    if (document.activeElement !== efEl('efDuration')) efEl('efDuration').value = ef.durShown;
     const n = countOverlaps(s, e, ef.id);
     hint.textContent = n ? `他のエントリ ${n} 件と時間が重なっています` : (e - s > 24 * 3600e3 ? '24時間を超えています' : '');
     if (hint.textContent) hint.classList.add('warn');
   } else {
+    ef.durShown = '';
     if (document.activeElement !== efEl('efDuration')) efEl('efDuration').value = '';
     hint.textContent = s && e ? '終了は開始より後にしてください' : '';
     if (hint.textContent) hint.classList.add('warn');
@@ -2637,15 +2676,15 @@ function updateEntryDerived() {
 
 function applyDurationInput() {
   const raw = efEl('efDuration').value;
+  if (!raw.trim() || raw === ef.durShown) return true; // 表示したままの値は適用しない
   const sec = parseDuration(raw);
   const s = parseLocalInput(efEl('efStart').value);
-  if (!raw.trim()) return true;
-  if (sec == null || sec <= 0) { efEl('efError').textContent = '時間の形式が正しくありません（例: 1:30:00 / 90m / 1.5h）'; return false; }
+  if (sec == null || sec <= 0) { efEl('efError').textContent = '時間の形式が正しくありません（例: 1:30 / 90m / 1.5h）'; return false; }
   if (!s) { efEl('efError').textContent = '先に開始日時を入力してください'; return false; }
   efEl('efError').textContent = '';
-  efEl('efEnd').value = toLocalInput(new Date(s.getTime() + sec * 1000));
-  efEl('efDuration').value = formatHMS(sec);
+  efEl('efEnd').value = toLocalInput(new Date(s.getTime() + sec * 1000), false);
   updateEntryDerived();
+  efEl('efDuration').value = ef.durShown;
   return true;
 }
 
@@ -2654,14 +2693,12 @@ function saveEntryForm() {
   const err = msg => { efEl('efError').textContent = msg; };
   const task = efEl('efTask').value.trim();
   const projectId = efEl('efProject').value || null;
-  const startStr = efEl('efStart').value;
-  const endStr = efEl('efEnd').value;
-  const start = parseLocalInput(startStr);
+  const { s: start, e: end, changed } = formTimes();
   if (!start) return err('開始日時を入力してください');
   const patch = {};
   if (task !== ef.initial.task) patch.task = task;
   if ((projectId || '') !== ef.initial.projectId) patch.projectId = projectId;
-  if (startStr !== ef.initial.start) patch.startTime = start;
+  if (changed) patch.startTime = start;
 
   if (ef.mode === 'running') {
     if (!store.data.activeTimer) { closeModal('entryModal'); return; }
@@ -2671,14 +2708,13 @@ function saveEntryForm() {
     closeModal('entryModal');
     return;
   }
-  const end = parseLocalInput(endStr);
   if (!end) return err('終了日時を入力してください');
   if (end <= start) return err('終了日時は開始日時より後にしてください');
   if (ef.mode === 'new') {
     if (store.addEntry({ task, projectId, startTime: start, endTime: end })) toast('エントリを追加しました');
   } else {
     if (!store.getEntry(ef.id)) return err('このエントリは既に削除されています');
-    if (endStr !== ef.initial.end) patch.endTime = end;
+    if (changed) patch.endTime = end;
     if (Object.keys(patch).length && !store.updateEntry(ef.id, patch)) return err('保存できませんでした');
   }
   closeModal('entryModal');
@@ -2886,7 +2922,6 @@ function renderActiveView() { if (prefs.tab === 'summary') renderSummary(); else
 function renderAll() {
   renderTimerBar();
   renderProjectFilter();
-  renderSuggestions();
   renderQuickStats();
   renderActiveView();
   renderProjectList();
@@ -3067,6 +3102,7 @@ function bindEvents() {
   byId('efStart').addEventListener('input', updateEntryDerived);
   byId('efEnd').addEventListener('input', updateEntryDerived);
   byId('efDuration').addEventListener('change', applyDurationInput);
+  byId('efProject').addEventListener('change', renderEntrySuggestions);
   byId('efDelete').onclick = deleteFromEntryModal;
 
   // プロジェクトモーダル
