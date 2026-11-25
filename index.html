@@ -288,6 +288,7 @@ body.is-running .timer-display:hover { background: var(--input); }
 .tl-actions button[data-act="continue"]:hover { color: var(--green); }
 .tl-actions button[data-act="delete"]:hover { color: var(--danger); }
 .tl-actions .icon { width: 16px; height: 16px; }
+.tl-more { padding: 16px 0 8px; text-align: center; font-size: 13px; color: var(--muted); }
 
 .empty-state { padding: 64px 20px; text-align: center; color: var(--text-2); }
 .empty-state > .icon { width: 42px; height: 42px; margin-bottom: 12px; color: var(--muted); stroke-width: 1.5; }
@@ -586,6 +587,7 @@ body.is-running .timer-display:hover { background: var(--input); }
       </div>
     </div>
     <div class="vlist" id="timelineList"></div>
+    <div class="tl-more" id="timelineMore" hidden></div>
     <div class="empty-state" id="timelineEmpty" hidden></div>
   </section>
 
@@ -2178,9 +2180,11 @@ const ROW_DAY = 52;
 const ROW_ENTRY = 56;
 
 class VirtualList {
-  constructor(el, renderRow) {
+  /** onNearEnd: 末尾が画面に近づいたときに呼ぶ（続きの読み込み用） */
+  constructor(el, renderRow, { onNearEnd = null } = {}) {
     this.el = el;
     this.renderRow = renderRow;
+    this.onNearEnd = onNearEnd;
     this.inner = document.createElement('div');
     this.inner.className = 'vlist-inner';
     el.appendChild(this.inner);
@@ -2214,6 +2218,7 @@ class VirtualList {
     if (!this.rows.length) { this.inner.innerHTML = ''; this.range = [-1, -1]; return; }
     if (!this.el.offsetParent) { if (force) this.range = [-1, -1]; return; }
     const top = -this.el.getBoundingClientRect().top;
+    if (this.onNearEnd && top + window.innerHeight + 800 >= this.offsets[this.rows.length]) this.onNearEnd();
     const overscan = 480;
     const start = this._indexAt(Math.max(0, top - overscan));
     const end = this._indexAt(Math.max(0, top + window.innerHeight + overscan));
@@ -2293,11 +2298,46 @@ function renderTimelineRow(row) {
 }
 
 let vlist = null;
+// 一度に表示するのは約 30 日分。下端に近づくと次の 30 日分を追加する（データ自体はすべて読み込み済み）
+const TL_CHUNK_DAYS = 30;
+const tlPage = { filterKey: null, cutoff: null, shown: 0, queued: false };
+const chunkStart = date => addDays(date, -(TL_CHUNK_DAYS - 1)).getTime();
+
+/** 表示する行数（cutoff の日より前の日は表示しない。日の途中では区切らない） */
+function timelineShownCount(rows) {
+  if (tlPage.cutoff === null || rows[0].date.getTime() < tlPage.cutoff) tlPage.cutoff = chunkStart(rows[0].date);
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].type === 'day' && rows[i].date.getTime() < tlPage.cutoff) return i;
+  }
+  return rows.length;
+}
+function showMoreTimeline() {
+  const next = tlCache.rows[tlPage.shown];
+  if (next && next.type === 'day') tlPage.cutoff = chunkStart(next.date);
+  renderTimeline();
+}
+function onTimelineNearEnd() {
+  if (tlPage.queued || tlPage.shown >= tlCache.rows.length) return;
+  tlPage.queued = true;
+  setTimeout(() => { tlPage.queued = false; showMoreTimeline(); }, 0);
+}
+function renderTimelineMore(rows, n) {
+  const el = byId('timelineMore');
+  el.innerHTML = n < rows.length
+    ? `<button class="btn btn-ghost" type="button" data-more>さらに表示（${esc(formatDateLabel(rows[n].date))}以前）</button>`
+    : '<span>これより前の記録はありません</span>';
+  el.hidden = false;
+}
+
 function renderTimeline() {
   if (byId('viewTimeline').hidden) return;
   const rows = buildTimelineRows();
+  const { q, pf } = timelineFilters();
+  if (tlPage.filterKey !== `${q}|${pf}`) { tlPage.filterKey = `${q}|${pf}`; tlPage.cutoff = null; }
   const empty = byId('timelineEmpty');
   if (!rows.length) {
+    tlPage.shown = 0;
+    byId('timelineMore').hidden = true;
     const { q, pf } = timelineFilters();
     empty.innerHTML = (q || pf)
       ? `${icon('search')}<p>条件に一致する記録はありません</p><button class="btn btn-secondary" type="button" data-clear-filter>絞り込みを解除</button>`
@@ -2309,7 +2349,10 @@ function renderTimeline() {
   }
   empty.hidden = true;
   byId('timelineList').hidden = false;
-  vlist.setRows(rows);
+  const n = timelineShownCount(rows);
+  tlPage.shown = n;
+  vlist.setRows(n === rows.length ? rows : rows.slice(0, n));
+  renderTimelineMore(rows, n);
 }
 
 function renderProjectFilter() {
@@ -3046,6 +3089,7 @@ function bindEvents() {
     byId('tlProject').value = '';
     renderTimeline();
   });
+  byId('timelineMore').addEventListener('click', e => { if (e.target.closest('[data-more]')) showMoreTimeline(); });
   const list = byId('timelineList');
   list.addEventListener('click', e => {
     const card = e.target.closest('.tl-entry');
@@ -3209,7 +3253,7 @@ store.subscribe((type, detail) => {
 // ============================================================
 async function boot() {
   applyTheme();
-  vlist = new VirtualList(byId('timelineList'), renderTimelineRow);
+  vlist = new VirtualList(byId('timelineList'), renderTimelineRow, { onNearEnd: onTimelineNearEnd });
   bindEvents();
   range.preset = PRESETS.includes(prefs.summaryPreset) ? prefs.summaryPreset : 'week';
   [range.from, range.to] = presetRange(range.preset);
