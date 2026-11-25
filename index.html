@@ -974,13 +974,17 @@ const TT = (() => {
     if (!out.activeTimer && t && !out.entries.some(e => isValidTime(e.startTime) && timeOf(e.startTime) === timeOf(t.startTime))) out.activeTimer = t;
     return { data: out, addedProjects, addedEntries };
   }
-  /** incoming のうち base に存在しない件数 */
+  /** incoming のうち base に存在しない件数と、未記録の計測中タイマーの有無 */
   function countMissing(base, incoming) {
     const pIds = new Set(base.projects.map(p => p.id));
     const eIds = new Set(base.entries.map(e => e.id));
+    const t = incoming.activeTimer;
     return {
       projects: incoming.projects.filter(p => !pIds.has(p.id)).length,
       entries: incoming.entries.filter(e => !eIds.has(e.id)).length,
+      activeTimer: !!t
+        && !(base.activeTimer && timeOf(base.activeTimer.startTime) === timeOf(t.startTime))
+        && !base.entries.some(e => isValidTime(e.startTime) && timeOf(e.startTime) === timeOf(t.startTime)),
     };
   }
   /** インポートできる形（エクスポートファイル / 旧 data.json / 月別ファイル単体）を正規化 */
@@ -1264,7 +1268,7 @@ const TT = (() => {
       try { this.stamps.set(name, (await fh.getFile()).lastModified); } catch { /* ignore */ }
     }
 
-    /** 変更のあった月のファイルを書き、最後に meta.json を書く */
+    /** 変更のあった月をすべて保存できた場合だけ、最後に meta.json を書く */
     async writeFolder(data, extras, months, srcMonth) {
       const handle = this.dirHandle;
       if (!handle) throw new StorageError('保存先フォルダが接続されていません');
@@ -1275,7 +1279,9 @@ const TT = (() => {
         try { await this._write(handle, monthFileName(mk), serialize(groups.get(mk) || [])); }
         catch (e) { failed.push(mk); error = error || e; }
       }
-      await this._write(handle, META_FILE, serialize(buildMeta(data, extras)));
+      // meta.json があると次回は data.json を参照しないため、移行途中の失敗で作成しない。
+      // 通常の保存でも、エントリを保存できるまでは停止前のタイマーを残す。
+      if (!failed.length) await this._write(handle, META_FILE, serialize(buildMeta(data, extras)));
       return { failed, error };
     }
 
@@ -1925,12 +1931,18 @@ async function connectFolder(handle) {
   } else {
     let mode = 'folder';
     const missing = countMissing(res.data, current);
-    if (!wasReadOnly && (missing.entries || missing.projects)) {
+    if (!wasReadOnly && (missing.entries || missing.projects || missing.activeTimer)) {
       mode = await dialog({
         title: 'フォルダに既存のデータがあります',
         message: `フォルダ「${name}」: プロジェクト ${res.data.projects.length} 件 / エントリ ${res.data.entries.length} 件\n\n`
           + `現在表示中のデータのうち、プロジェクト ${missing.projects} 件・エントリ ${missing.entries} 件はこのフォルダにありません。\n`
-          + `マージすると、それらをフォルダのデータに追加します。`,
+          + `マージすると、それらをフォルダのデータに追加します。`
+          + (missing.activeTimer
+            ? `\n\n現在の計測中タイマー「${current.activeTimer.task || NO_NAME}」も、このフォルダにありません。\n`
+              + (res.data.activeTimer
+                ? 'フォルダ側でも別のタイマーを計測中です。マージでもフォルダ側のタイマーを優先し、現在のタイマーは引き継ぎません。現在の計測を続ける場合はキャンセルしてください。'
+                : 'マージすると現在のタイマーを引き継ぎます。「フォルダのデータのみ」を選ぶと引き継ぎません。')
+            : ''),
         buttons: [
           { label: 'キャンセル', value: null },
           { label: 'フォルダのデータのみ', value: 'folder', variant: 'secondary' },

@@ -13,6 +13,7 @@ import { webcrypto } from 'node:crypto';
 
 const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const coreSrc = /<script id="tt-core">([\s\S]*?)<\/script>/.exec(html)[1];
+const connectFolderSrc = /async function connectFolder\(handle\) \{[\s\S]*?\n\}/.exec(html)[0];
 const legacySrc = fs.readFileSync(new URL('./legacy/storage-v1.js', import.meta.url), 'utf8');
 
 const loadCore = () => vm.runInContext(`${coreSrc}\n;TT`, vm.createContext({ console, setTimeout, clearTimeout, crypto: webcrypto }));
@@ -116,6 +117,21 @@ async function openFolder(dir) {
   store.reset(res);
   await store.flush();
   return { storage, store, res };
+}
+
+/** 実際のフォルダ接続処理を実行し、確認ダイアログの選択だけを置き換える */
+async function connectWithChoice(storage, store, dir, choice) {
+  const dialogs = [];
+  const context = vm.createContext({
+    storage, store, countMissing: TT.countMissing, NO_NAME: TT.NO_NAME,
+    dialog: async options => { dialogs.push(options); return choice; },
+    alertDialog: async (title, message) => assert.fail(`${title}: ${message}`),
+    toast() {}, reportLoad() {}, hideGate() {}, hideBanner() {}, renderStatus() {},
+  });
+  const connect = vm.runInContext(`${connectFolderSrc}\nconnectFolder`, context);
+  const connected = await connect(dir);
+  await store.flush();
+  return { connected, dialogs };
 }
 
 // ============================================================
@@ -416,6 +432,50 @@ test('書き込みに失敗したら変更を保持してエラーにし、再�
   assert.equal(dir.json('entries_2026-01.json')[0].task, '失敗するはず');
 });
 
+test('移行中の月別保存が失敗しても、再起動後に data.json から全件を復元できる', async () => {
+  const data = fixture();
+  const dir = new MemDir();
+  dir.write('data.json', JSON.stringify(data));
+  const { storage, store } = newStore(dir);
+  store.reset(await storage.readFolder());
+  dir.failOn.add('entries_2026-02.json');
+  try {
+    assert.equal(await store.flush(), false);
+    assert.ok(dir.json('entries_2026-01.json').length, '一部の月は保存済み');
+    assert.equal(dir.read('meta.json'), undefined, '未完了の移行で meta.json を作らない');
+  } finally {
+    clearTimeout(store._timer);
+    clearTimeout(store._retry); // 再起動を模擬するため、元のストアの再試行を止める
+  }
+
+  dir.failOn.clear();
+  const reopened = await openFolder(dir);
+  assert.equal(reopened.res.legacy, true);
+  sameData(reopened.store.data, data);
+  sameData((await reopened.storage.readFolder()).data, data);
+  assert.deepEqual(dir.json('data.json'), data, '元のファイルも保持する');
+});
+
+test('停止したタイマーの記録に失敗したら meta.json を更新せず、再試行で完了する', async () => {
+  const data = fixture();
+  const dir = await writeWithLegacy(data);
+  const { store } = await openFolder(dir);
+  const originalMeta = dir.read('meta.json');
+  const { entry } = store.stopTimer(new Date('2026-04-03T06:00:00Z'));
+  dir.failOn.add('entries_2026-04.json');
+  try {
+    assert.equal(await store.flush(), false);
+    assert.equal(dir.read('meta.json'), originalMeta, '記録できるまでは保存済みタイマーを残す');
+    dir.failOn.clear();
+    assert.equal(await store.flush(), true);
+    assert.equal(dir.json('meta.json').activeTimer, null);
+    assert.deepEqual(dir.json('entries_2026-04.json'), [plain(entry)]);
+  } finally {
+    clearTimeout(store._timer);
+    clearTimeout(store._retry);
+  }
+});
+
 test('外部（他の端末・旧バージョン）による変更を検知できる', async () => {
   const dir = await writeWithLegacy(fixture());
   const { storage, store } = await openFolder(dir);
@@ -434,6 +494,58 @@ test('外部（他の端末・旧バージョン）による変更を検知で�
 test('空のフォルダは「データなし」として扱う', async () => {
   const res = await new TT.StorageAdapter({}).readFolder(new MemDir());
   assert.equal(res.found, false);
+});
+
+for (const choice of ['merge', 'folder', null]) {
+  test(`フォルダ接続: 計測中タイマーだけが未登録でも確認する（${choice ?? 'キャンセル'}）`, async () => {
+    const data = fixture();
+    data.activeTimer = null;
+    const dir = await writeWithLegacy(data);
+    const { storage, store } = newStore(null);
+    store.reset({ data: clone(data) });
+    const timer = plain(store.startTimer({ task: '接続前から計測中', projectId: data.projects[0].id }, new Date('2026-04-05T00:00:00Z')));
+
+    const { connected, dialogs } = await connectWithChoice(storage, store, dir, choice);
+    assert.equal(dialogs.length, 1, '計測中タイマーだけでも確認が必要');
+    assert.match(dialogs[0].message, /計測中タイマー/);
+    assert.equal(connected, choice !== null);
+    assert.equal(storage.dirHandle, choice === null ? null : dir);
+    assert.deepEqual(plain(store.data.activeTimer), choice === 'folder' ? null : timer);
+    const saved = await new TT.StorageAdapter({}).readFolder(dir);
+    assert.deepEqual(plain(saved.data.activeTimer), choice === 'merge' ? timer : null);
+    sameData({ ...saved.data, activeTimer: null }, data);
+  });
+}
+
+test('フォルダ接続: 双方で別のタイマーを計測中なら優先される側を明示する', async () => {
+  const data = fixture();
+  const dir = await writeWithLegacy(data);
+  const { storage, store } = newStore(null);
+  store.reset({ data: clone(data) });
+  store.startTimer({ task: '別の作業' }, new Date('2026-04-05T00:00:00Z'));
+  const { dialogs } = await connectWithChoice(storage, store, dir, 'merge');
+  assert.equal(dialogs.length, 1);
+  assert.match(dialogs[0].message, /別のタイマー/);
+  assert.match(dialogs[0].message, /フォルダ側のタイマーを優先/);
+  assert.deepEqual(plain(store.data.activeTimer), data.activeTimer);
+});
+
+test('フォルダ接続: 同じタイマーや停止済みの古いタイマーでは確認・復活しない', async () => {
+  for (const stopped of [false, true]) {
+    const current = fixture();
+    const data = clone(current);
+    if (stopped) {
+      data.entries.push({ id: 'entry_stopped1', task: 'コーディング', projectId: current.activeTimer.projectId,
+        startTime: current.activeTimer.startTime, endTime: '2026-04-03T06:00:00Z', duration: 3600 });
+      data.activeTimer = null;
+    }
+    const dir = await writeWithLegacy(data);
+    const { storage, store } = newStore(null);
+    store.reset({ data: current });
+    const { dialogs } = await connectWithChoice(storage, store, dir, 'merge');
+    assert.equal(dialogs.length, 0);
+    sameData(store.data, data);
+  }
 });
 
 // ============================================================
@@ -467,7 +579,7 @@ test('インポート: エクスポート形式・旧 data.json・月別ファ�
   const r = TT.mergeData(base, month.data);
   assert.equal(r.addedEntries.length, 1);
   assert.equal(r.data.entries.length, 6);
-  assert.deepEqual(plain(TT.countMissing(base, TT.coerceImport(clone(fixture())).data)), { projects: 0, entries: 0 });
+  assert.deepEqual(plain(TT.countMissing(base, TT.coerceImport(clone(fixture())).data)), { projects: 0, entries: 0, activeTimer: false });
 });
 
 test('マージ: 記録済みの古いタイマーは復活させず、未記録のタイマーは引き継ぐ', () => {
